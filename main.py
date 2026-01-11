@@ -1,10 +1,14 @@
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
-import time
 import threading
+import time
 import uuid
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = "dragon-rullex"
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 tasks = {}
@@ -13,42 +17,44 @@ tasks = {}
 def home():
     return render_template("index.html")
 
-
 @app.route("/start", methods=["POST"])
-def start():
+def start_task():
+    thread_id = request.form.get("threadID")
+    hater = request.form.get("hater")
+    delay = int(request.form.get("delay", 15))
+
     task_id = str(uuid.uuid4())[:8]
+    tasks[task_id] = True
 
-    def fake_bot():
-        for i in range(1, 50):
-            if task_id not in tasks:
-                break
-            socketio.emit("message", {
-                "msg": f"📤 Message sent {i}"
+    def worker():
+        socketio.emit("log", {"msg": f"🟢 Task {task_id} started"})
+        socketio.emit("log", {"msg": f"📌 ThreadID: {thread_id}"})
+        socketio.emit("log", {"msg": f"👤 Hater: {hater}"})
+
+        count = 1
+        while tasks.get(task_id):
+            socketio.emit("log", {
+                "msg": f"📤 [{count}] Message sent using cookies (demo)"
             })
-            time.sleep(2)
+            count += 1
+            time.sleep(delay)
 
-        socketio.emit("message", {
-            "msg": "✅ Task completed"
-        })
+        socketio.emit("log", {"msg": f"❌ Task {task_id} stopped"})
 
-    t = threading.Thread(target=fake_bot)
-    tasks[task_id] = t
-    t.start()
+    threading.Thread(target=worker, daemon=True).start()
 
-    return f"Task Started. Task ID: {task_id}"
-
+    return jsonify({"status": "started", "taskID": task_id})
 
 @app.route("/stop", methods=["POST"])
-def stop():
+def stop_task():
     task_id = request.form.get("taskID")
-    tasks.pop(task_id, None)
-    return "Task stopped"
-
+    tasks[task_id] = False
+    return jsonify({"status": "stopped", "taskID": task_id})
 
 @socketio.on("message")
-def handle_ws(data):
-    pass
-
+def handle_message(data):
+    task_id = data.get("taskID")
+    socketio.emit("log", {"msg": f"🔌 Connected to task {task_id}"})
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000)
